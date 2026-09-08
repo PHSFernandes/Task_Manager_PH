@@ -22,7 +22,7 @@ def load_data(worksheet):
 df_tarefas = load_data("Tarefas")
 df_instancias = load_data("Instancias")
 
-# Tratamento de compatibilidade e segurança para colunas e valores nulos
+# Tratamento de segurança para colunas e valores nulos
 colunas_tarefas_padrao = {
     "id_tarefa": "",
     "titulo": "",
@@ -170,30 +170,39 @@ with aba_relatorios:
     def gerar_pdf_eisenhower(df_relatorio, titulo_pdf):
         pdf = FPDF()
         pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        
         pdf.set_font("helvetica", style="B", size=16)
-        pdf.cell(0, 10, titulo_pdf, new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.cell(w=0, h=10, text=titulo_pdf, new_x="LMARGIN", new_y="NEXT", align="C")
         pdf.ln(5)
         
         categorias = [
-            ("1º) IMPORTANTE e URGENTE: FAZER AGORA!", "Importante", "Urgente"),
-            ("2º) IMPORTANTE e NAO URGENTE: PROGRAME-SE!", "Importante", "Não Urgente"),
-            ("3º) URGENTE e NAO IMPORTANTE: DELEGUE!", "Não Importante", "Urgente"),
-            ("4º) NAO URGENTE e NAO IMPORTANTE: ELIMINE!", "Não Importante", "Não Urgente")
+            ("1o) IMPORTANTE e URGENTE: FAZER AGORA!", "Importante", "Urgente"),
+            ("2o) IMPORTANTE e NAO URGENTE: PROGRAME-SE!", "Importante", "Não Urgente"),
+            ("3o) URGENTE e NAO IMPORTANTE: DELEGUE!", "Não Importante", "Urgente"),
+            ("4o) NAO URGENTE e NAO IMPORTANTE: ELIMINE!", "Não Importante", "Não Urgente")
         ]
         
+        largura_util = pdf.epw
+        
         for nome_cat, imp, urg in categorias:
-            pdf.set_font("helvetica", style="B", size=12)
-            pdf.cell(0, 10, nome_cat, new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font("helvetica", size=10)
+            pdf.set_font("helvetica", style="B", size=11)
+            pdf.cell(w=largura_util, h=8, text=nome_cat, new_x="LMARGIN", new_y="NEXT")
             
+            pdf.set_font("helvetica", size=10)
             filtro = df_relatorio[(df_relatorio["importancia"] == imp) & (df_relatorio["urgencia"] == urg)]
+            
             if filtro.empty:
-                pdf.cell(0, 6, "  Nenhuma tarefa nesta categoria.", new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(w=largura_util, h=6, text="  Nenhuma tarefa nesta categoria.", new_x="LMARGIN", new_y="NEXT")
             else:
                 for _, row in filtro.iterrows():
-                    texto_tarefa = f" - {row['titulo']} (Contexto: {row['contexto']} | Status: {row['status_global']})"
-                    pdf.multi_cell(0, 6, texto_tarefa)
-            pdf.ln(5)
+                    texto_tarefa = f"- {row['titulo']} [Contexto: {row['contexto']} | Status: {row['status_global']}]"
+                    texto_sanitizado = texto_tarefa.encode("latin-1", "replace").decode("latin-1")
+                    
+                    pdf.set_x(pdf.l_margin)
+                    pdf.multi_cell(w=largura_util, h=6, text=texto_sanitizado, new_x="LMARGIN", new_y="NEXT")
+            
+            pdf.ln(4)
             
         return bytes(pdf.output())
 
@@ -203,21 +212,23 @@ with aba_relatorios:
     col_pdf1, col_pdf2 = st.columns(2)
     
     with col_pdf1:
-        if st.button("Gerar PDF - Pendentes"):
-            pdf_bytes = gerar_pdf_eisenhower(df_pendentes, "Relatorio de Tarefas Pendentes")
-            st.download_button(
-                label="📥 Baixar PDF (Pendentes)",
-                data=pdf_bytes,
-                file_name="tarefas_pendentes.pdf",
-                mime="application/pdf"
-            )
+        st.markdown("**Tarefas Pendentes**")
+        pdf_pendentes_bytes = gerar_pdf_eisenhower(df_pendentes, "Relatorio de Tarefas Pendentes")
+        st.download_button(
+            label="📥 Baixar PDF (Pendentes)",
+            data=pdf_pendentes_bytes,
+            file_name="tarefas_pendentes.pdf",
+            mime="application/pdf",
+            key="btn_dl_pendentes"
+        )
 
     with col_pdf2:
-        if st.button("Gerar PDF - Concluídas"):
-            pdf_bytes = gerar_pdf_eisenhower(df_concluidas, "Relatorio de Tarefas Concluidas")
-            st.download_button(
-                label="📥 Baixar PDF (Concluídas)",
-                data=pdf_bytes,
-                file_name="tarefas_concluidas.pdf",
-                mime="application/pdf"
-            )
+        st.markdown("**Tarefas Concluídas**")
+        pdf_concluidas_bytes = gerar_pdf_eisenhower(df_concluidas, "Relatorio de Tarefas Concluidas")
+        st.download_button(
+            label="📥 Baixar PDF (Concluídas)",
+            data=pdf_concluidas_bytes,
+            file_name="tarefas_concluidas.pdf",
+            mime="application/pdf",
+            key="btn_dl_concluidas"
+        )
