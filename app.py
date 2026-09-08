@@ -45,6 +45,7 @@ with aba_cadastro:
                 }])
                 df_tarefas = pd.concat([df_tarefas, nova_tarefa], ignore_index=True)
                 conn.update(worksheet="Tarefas", data=df_tarefas)
+                st.cache_data.clear()
                 st.success("Tarefa cadastrada!")
                 st.rerun()
 
@@ -73,6 +74,7 @@ with aba_gestao:
                 if st.button("Salvar Status", key=f"btn_status_{id_t}"):
                     df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "status_global"] = novo_status
                     conn.update(worksheet="Tarefas", data=df_tarefas)
+                    st.cache_data.clear()
                     st.rerun()
 
             with col_instancia:
@@ -99,6 +101,7 @@ with aba_gestao:
                             }])
                             df_instancias = pd.concat([df_instancias, nova_instancia], ignore_index=True)
                             conn.update(worksheet="Instancias", data=df_instancias)
+                            st.cache_data.clear()
                             st.rerun()
 
             st.markdown("---")
@@ -114,6 +117,7 @@ with aba_gestao:
                         id_inst = ultima_linha["id_instancia"]
                         df_instancias.loc[df_instancias["id_instancia"] == id_inst, "data_saida"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         conn.update(worksheet="Instancias", data=df_instancias)
+                        st.cache_data.clear()
                         st.rerun()
             else:
                 st.write("Sem histórico de tramitação.")
