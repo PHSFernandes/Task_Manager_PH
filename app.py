@@ -95,7 +95,7 @@ with aba_gestao:
     subaba_ativas, subaba_concluidas = st.tabs(["⏳ Tarefas em Andamento", "✅ Tarefas Concluídas"])
 
     def renderizar_lista_tarefas(df_lista, is_historico_concluidas=False):
-        global df_tarefas, df_instancias  # Corrige o UnboundLocalError
+        global df_tarefas, df_instancias
         
         if df_lista.empty:
             st.info("Nenhuma tarefa encontrada nesta seção.")
@@ -215,33 +215,78 @@ with aba_cadastro:
 with aba_relatorios:
     st.subheader("Gerador de Relatórios (Matriz de Eisenhower)")
     
-    def gerar_pdf_eisenhower(df_relatorio, titulo_pdf, is_concluida=False):
+    categorias_eisenhower = [
+        ("1o) IMPORTANTE e URGENTE: FAZER AGORA!", "Importante", "Urgente"),
+        ("2o) IMPORTANTE e NAO URGENTE: PROGRAME-SE!", "Importante", "Não Urgente"),
+        ("3o) URGENTE e NAO IMPORTANTE: DELEGUE!", "Não Importante", "Urgente"),
+        ("4o) NAO URGENTE e NAO IMPORTANTE: ELIMINE!", "Não Importante", "Não Urgente")
+    ]
+
+    # Função para gerar o relatório de pendentes com contextos em páginas separadas
+    def gerar_pdf_pendentes_por_contexto(df_dados, contextos_selecionados):
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        largura_util = pdf.epw
+
+        for ctx in contextos_selecionados:
+            pdf.add_page()
+            
+            # Título específico por contexto
+            pdf.set_font("helvetica", style="B", size=15)
+            titulo_secao = f"Relatorio de Tarefas Pendentes - {ctx}"
+            pdf.cell(w=0, h=9, text=titulo_secao.encode("latin-1", "replace").decode("latin-1"), new_x="LMARGIN", new_y="NEXT", align="C")
+            
+            pdf.set_font("helvetica", size=9)
+            pdf.cell(w=0, h=5, text=f"Data de Emissao: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", new_x="LMARGIN", new_y="NEXT", align="C")
+            pdf.ln(4)
+            
+            df_ctx = df_dados[df_dados["contexto"] == ctx]
+            
+            for nome_cat, imp, urg in categorias_eisenhower:
+                pdf.set_font("helvetica", style="B", size=11)
+                pdf.cell(w=largura_util, h=8, text=nome_cat, new_x="LMARGIN", new_y="NEXT")
+                
+                pdf.set_font("helvetica", size=10)
+                if df_ctx.empty or "importancia" not in df_ctx.columns:
+                    filtro = pd.DataFrame()
+                else:
+                    filtro = df_ctx[(df_ctx["importancia"] == imp) & (df_ctx["urgencia"] == urg)]
+                
+                if filtro.empty:
+                    pdf.cell(w=largura_util, h=6, text="  Nenhuma tarefa nesta categoria.", new_x="LMARGIN", new_y="NEXT")
+                else:
+                    for _, row in filtro.iterrows():
+                        tempo_decorrido = calcular_tempo_decorrido(row.get("criado_em", ""), None)
+                        texto_tarefa = f"- {row['titulo']} [Status: {row['status_global']} | Tempo decorrido: {tempo_decorrido}]"
+                        texto_sanitizado = texto_tarefa.encode("latin-1", "replace").decode("latin-1")
+                        
+                        pdf.set_x(pdf.l_margin)
+                        pdf.multi_cell(w=largura_util, h=6, text=texto_sanitizado, new_x="LMARGIN", new_y="NEXT")
+                
+                pdf.ln(3)
+                
+        return bytes(pdf.output())
+
+    # Função para gerar o relatório de concluídas
+    def gerar_pdf_concluidas(df_relatorio, titulo_pdf):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
         
         pdf.set_font("helvetica", style="B", size=15)
-        pdf.cell(w=0, h=9, text=titulo_pdf, new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.cell(w=0, h=9, text=titulo_pdf.encode("latin-1", "replace").decode("latin-1"), new_x="LMARGIN", new_y="NEXT", align="C")
         
         pdf.set_font("helvetica", size=9)
         pdf.cell(w=0, h=5, text=f"Data de Emissao: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", new_x="LMARGIN", new_y="NEXT", align="C")
         pdf.ln(4)
         
-        categorias = [
-            ("1o) IMPORTANTE e URGENTE: FAZER AGORA!", "Importante", "Urgente"),
-            ("2o) IMPORTANTE e NAO URGENTE: PROGRAME-SE!", "Importante", "Não Urgente"),
-            ("3o) URGENTE e NAO IMPORTANTE: DELEGUE!", "Não Importante", "Urgente"),
-            ("4o) NAO URGENTE e NAO IMPORTANTE: ELIMINE!", "Não Importante", "Não Urgente")
-        ]
-        
         largura_util = pdf.epw
         
-        for nome_cat, imp, urg in categorias:
+        for nome_cat, imp, urg in categorias_eisenhower:
             pdf.set_font("helvetica", style="B", size=11)
             pdf.cell(w=largura_util, h=8, text=nome_cat, new_x="LMARGIN", new_y="NEXT")
             
             pdf.set_font("helvetica", size=10)
-            
             if df_relatorio.empty or "importancia" not in df_relatorio.columns:
                 filtro = pd.DataFrame()
             else:
@@ -251,12 +296,9 @@ with aba_relatorios:
                 pdf.cell(w=largura_util, h=6, text="  Nenhuma tarefa nesta categoria.", new_x="LMARGIN", new_y="NEXT")
             else:
                 for _, row in filtro.iterrows():
-                    fim = row.get("concluido_em", None) if is_concluida else None
-                    tempo_decorrido = calcular_tempo_decorrido(row.get("criado_em", ""), fim)
-                    
-                    rotulo_tempo = "Tempo de resolucao" if is_concluida else "Tempo decorrido"
-                    texto_tarefa = f"- {row['titulo']} [Contexto: {row['contexto']} | Status: {row['status_global']} | {rotulo_tempo}: {tempo_decorrido}]"
-                    
+                    fim = row.get("concluido_em", None)
+                    tempo_resolucao = calcular_tempo_decorrido(row.get("criado_em", ""), fim)
+                    texto_tarefa = f"- {row['titulo']} [Contexto: {row['contexto']} | Status: {row['status_global']} | Tempo de resolucao: {tempo_resolucao}]"
                     texto_sanitizado = texto_tarefa.encode("latin-1", "replace").decode("latin-1")
                     
                     pdf.set_x(pdf.l_margin)
@@ -271,16 +313,26 @@ with aba_relatorios:
 
     col_pdf1, col_pdf2 = st.columns(2)
     
-    # --- RELATÓRIO DE PENDENTES ---
+    # --- RELATÓRIO DE PENDENTES POR CONTEXTO ---
     with col_pdf1:
         st.markdown("### Tarefas Pendentes")
-        st.caption("Calcula o tempo decorrido individual desde a criação da tarefa até a emissão do relatório.")
+        st.caption("Selecione os ambientes desejados. Cada ambiente iniciará em uma página separada.")
+        
+        contextos_selecionados = st.multiselect(
+            "Filtrar Ambientes:",
+            options=["Pessoal", "InnovaTerra", "Egas"],
+            default=["Pessoal", "InnovaTerra", "Egas"],
+            key="ms_contextos_pendentes"
+        )
+        
         if st.button("Gerar Relatório de Pendentes", key="btn_gerar_pend"):
-            st.session_state["pdf_pendentes_data"] = gerar_pdf_eisenhower(
-                df_pendentes, 
-                "Relatorio de Tarefas Pendentes", 
-                is_concluida=False
-            )
+            if not contextos_selecionados:
+                st.warning("Selecione ao menos um ambiente para emitir o relatório.")
+            else:
+                st.session_state["pdf_pendentes_data"] = gerar_pdf_pendentes_por_contexto(
+                    df_pendentes, 
+                    contextos_selecionados
+                )
             
         if "pdf_pendentes_data" in st.session_state:
             st.download_button(
@@ -313,10 +365,9 @@ with aba_relatorios:
             else:
                 df_concluidas_filtradas = pd.DataFrame(columns=df_tarefas.columns)
                 
-            st.session_state["pdf_concluidas_data"] = gerar_pdf_eisenhower(
+            st.session_state["pdf_concluidas_data"] = gerar_pdf_concluidas(
                 df_concluidas_filtradas, 
-                f"Relatorio de Tarefas Concluidas ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})", 
-                is_concluida=True
+                f"Relatorio de Tarefas Concluidas ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})"
             )
             st.session_state["pdf_concluidas_nome"] = f"tarefas_concluidas_{data_ini}_{data_fim}.pdf"
 
