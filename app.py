@@ -22,7 +22,7 @@ def load_data(worksheet):
 df_tarefas = load_data("Tarefas")
 df_instancias = load_data("Instancias")
 
-# Tratamento de segurança para colunas e valores nulos
+# Tratamento de integridade para colunas e valores nulos
 colunas_tarefas_padrao = {
     "id_tarefa": "",
     "titulo": "",
@@ -40,7 +40,7 @@ for col, val_padrao in colunas_tarefas_padrao.items():
     else:
         df_tarefas[col] = df_tarefas[col].fillna(val_padrao)
 
-# Função utilitária para cálculo de tempo formatado
+# Função para cálculo exato de tempo decorrido individual (dias e horas)
 def calcular_tempo_decorrido(inicio_str, fim_str=None):
     try:
         dt_inicio = datetime.strptime(str(inicio_str).strip(), "%Y-%m-%d %H:%M:%S")
@@ -63,13 +63,12 @@ def calcular_tempo_decorrido(inicio_str, fim_str=None):
         return f"{dias}d {horas}h"
     return f"{horas}h"
 
-# Menu Lateral para os Ambientes
+# Menu Lateral de Ambientes
 st.sidebar.header("Ambientes")
 contexto_escolhido = st.sidebar.radio("Selecione o painel atual:", ["Pessoal", "InnovaTerra", "Egas"])
 
 st.title("Gestão de Tarefas")
 
-# Abas da Aplicação
 aba_dashboard, aba_gestao, aba_cadastro, aba_relatorios = st.tabs(["📊 Dashboard", "📋 Gestão e Fluxo", "➕ Nova Tarefa", "📄 Relatórios"])
 
 # ================= ABA DASHBOARD =================
@@ -91,86 +90,98 @@ with aba_dashboard:
 
 # ================= ABA GESTÃO E FLUXO =================
 with aba_gestao:
-    tarefas_filtro = df_tarefas[df_tarefas["contexto"] == contexto_escolhido]
+    tarefas_contexto = df_tarefas[df_tarefas["contexto"] == contexto_escolhido]
     
-    if tarefas_filtro.empty:
-        st.info("Nenhuma tarefa ativa neste momento para este contexto.")
-    
-    for _, tarefa in tarefas_filtro.iterrows():
-        id_t = tarefa["id_tarefa"]
-        tit = tarefa["titulo"]
-        urg = tarefa["urgencia"]
-        imp = tarefa["importancia"]
-        stat = tarefa["status_global"]
-        
-        with st.expander(f"[{urg} / {imp}] {tit} - (Status: {stat})"):
-            col_status, col_instancia = st.columns(2)
-            
-            with col_status:
-                st.markdown("**Atualizar Status Global**")
-                lista_status = ["Pendente", "Em andamento", "Aguardando Setor/Pessoa", "Em revisão", "Concluída"]
-                idx_atual = lista_status.index(stat) if stat in lista_status else 0
-                novo_status = st.selectbox("Mudar para:", lista_status, index=idx_atual, key=f"status_{id_t}")
-                
-                if st.button("Salvar Status", key=f"btn_status_{id_t}"):
-                    df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "status_global"] = novo_status
-                    
-                    if novo_status == "Concluída":
-                        agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "concluido_em"] = agora
-                        mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isna() | (df_instancias["data_saida"] == ""))
-                        df_instancias.loc[mask, "data_saida"] = agora
-                        conn.update(worksheet="Instancias", data=df_instancias)
-                    else:
-                        df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "concluido_em"] = ""
-                        
-                    conn.update(worksheet="Tarefas", data=df_tarefas)
-                    st.cache_data.clear()
-                    st.rerun()
+    subaba_ativas, subaba_concluidas = st.tabs(["⏳ Tarefas em Andamento", "✅ Tarefas Concluídas"])
 
-            with col_instancia:
-                st.markdown("**Encaminhar (Nova Instância)**")
-                with st.form(f"form_inst_{id_t}", clear_on_submit=True):
-                    responsavel = st.text_input("Responsável / Setor")
-                    obs = st.text_area("Observações")
+    def renderizar_lista_tarefas(df_lista, is_historico_concluidas=False):
+        if df_lista.empty:
+            st.info("Nenhuma tarefa encontrada nesta seção.")
+            return
+
+        for _, tarefa in df_lista.iterrows():
+            id_t = tarefa["id_tarefa"]
+            tit = tarefa["titulo"]
+            urg = tarefa["urgencia"]
+            imp = tarefa["importancia"]
+            stat = tarefa["status_global"]
+            
+            with st.expander(f"[{urg} / {imp}] {tit} - (Status: {stat})"):
+                col_status, col_instancia = st.columns(2)
+                
+                with col_status:
+                    st.markdown("**Atualizar Status Global**")
+                    lista_status = ["Pendente", "Em andamento", "Aguardando Setor/Pessoa", "Em revisão", "Concluída"]
+                    idx_atual = lista_status.index(stat) if stat in lista_status else 0
+                    novo_status = st.selectbox("Mudar para:", lista_status, index=idx_atual, key=f"status_{id_t}")
                     
-                    if st.form_submit_button("Registrar Encaminhamento"):
-                        if responsavel.strip():
+                    if st.button("Salvar Status", key=f"btn_status_{id_t}"):
+                        df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "status_global"] = novo_status
+                        
+                        if novo_status == "Concluída":
                             agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
+                            df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "concluido_em"] = agora
                             mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isna() | (df_instancias["data_saida"] == ""))
                             df_instancias.loc[mask, "data_saida"] = agora
+                            conn.update(worksheet="Instancias", data=df_instancias)
+                        else:
+                            df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "concluido_em"] = ""
                             
-                            nova_instancia = pd.DataFrame([{
-                                "id_instancia": str(uuid.uuid4())[:8],
-                                "id_tarefa": id_t,
-                                "responsavel": responsavel,
-                                "data_entrada": agora,
-                                "data_saida": "",
-                                "observacoes": obs
-                            }])
-                            df_instancias = pd.concat([df_instancias, nova_instancia], ignore_index=True)
+                        conn.update(worksheet="Tarefas", data=df_tarefas)
+                        st.cache_data.clear()
+                        st.rerun()
+
+                with col_instancia:
+                    st.markdown("**Encaminhar (Nova Instância)**")
+                    with st.form(f"form_inst_{id_t}", clear_on_submit=True):
+                        responsavel = st.text_input("Responsável / Setor")
+                        obs = st.text_area("Observações")
+                        
+                        if st.form_submit_button("Registrar Encaminhamento"):
+                            if responsavel.strip():
+                                agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                
+                                mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isna() | (df_instancias["data_saida"] == ""))
+                                df_instancias.loc[mask, "data_saida"] = agora
+                                
+                                nova_instancia = pd.DataFrame([{
+                                    "id_instancia": str(uuid.uuid4())[:8],
+                                    "id_tarefa": id_t,
+                                    "responsavel": responsavel,
+                                    "data_entrada": agora,
+                                    "data_saida": "",
+                                    "observacoes": obs
+                                }])
+                                df_instancias = pd.concat([df_instancias, nova_instancia], ignore_index=True)
+                                conn.update(worksheet="Instancias", data=df_instancias)
+                                st.cache_data.clear()
+                                st.rerun()
+
+                st.markdown("---")
+                st.markdown("**Histórico e Tempo de Resolução**")
+                
+                instancias_tarefa = df_instancias[df_instancias["id_tarefa"] == id_t]
+                if not instancias_tarefa.empty:
+                    st.dataframe(instancias_tarefa[["responsavel", "data_entrada", "data_saida", "observacoes"]], hide_index=True, use_container_width=True)
+                    
+                    ultima_linha = instancias_tarefa.iloc[-1]
+                    if pd.isna(ultima_linha["data_saida"]) or ultima_linha["data_saida"] == "":
+                        if st.button("Concluir Etapa Atual", key=f"concluir_etapa_{id_t}"):
+                            id_inst = ultima_linha["id_instancia"]
+                            df_instancias.loc[df_instancias["id_instancia"] == id_inst, "data_saida"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             conn.update(worksheet="Instancias", data=df_instancias)
                             st.cache_data.clear()
                             st.rerun()
+                else:
+                    st.write("Sem histórico de tramitação.")
 
-            st.markdown("---")
-            st.markdown("**Histórico e Tempo de Resolução**")
-            
-            instancias_tarefa = df_instancias[df_instancias["id_tarefa"] == id_t]
-            if not instancias_tarefa.empty:
-                st.dataframe(instancias_tarefa[["responsavel", "data_entrada", "data_saida", "observacoes"]], hide_index=True, use_container_width=True)
-                
-                ultima_linha = instancias_tarefa.iloc[-1]
-                if pd.isna(ultima_linha["data_saida"]) or ultima_linha["data_saida"] == "":
-                    if st.button("Concluir Etapa Atual", key=f"concluir_etapa_{id_t}"):
-                        id_inst = ultima_linha["id_instancia"]
-                        df_instancias.loc[df_instancias["id_instancia"] == id_inst, "data_saida"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        conn.update(worksheet="Instancias", data=df_instancias)
-                        st.cache_data.clear()
-                        st.rerun()
-            else:
-                st.write("Sem histórico de tramitação.")
+    with subaba_ativas:
+        df_ativas = tarefas_contexto[tarefas_contexto["status_global"] != "Concluída"]
+        renderizar_lista_tarefas(df_ativas, is_historico_concluidas=False)
+
+    with subaba_concluidas:
+        df_concluidas_ctx = tarefas_contexto[tarefas_contexto["status_global"] == "Concluída"]
+        renderizar_lista_tarefas(df_concluidas_ctx, is_historico_concluidas=True)
 
 # ================= ABA NOVA TAREFA =================
 with aba_cadastro:
@@ -207,11 +218,11 @@ with aba_relatorios:
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
         
-        pdf.set_font("helvetica", style="B", size=16)
-        pdf.cell(w=0, h=10, text=titulo_pdf, new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.set_font("helvetica", style="B", size=15)
+        pdf.cell(w=0, h=9, text=titulo_pdf, new_x="LMARGIN", new_y="NEXT", align="C")
         
         pdf.set_font("helvetica", size=9)
-        pdf.cell(w=0, h=6, text=f"Emitido em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.cell(w=0, h=5, text=f"Data de Emissao: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", new_x="LMARGIN", new_y="NEXT", align="C")
         pdf.ln(4)
         
         categorias = [
@@ -239,17 +250,17 @@ with aba_relatorios:
             else:
                 for _, row in filtro.iterrows():
                     fim = row.get("concluido_em", None) if is_concluida else None
-                    tempo_txt = calcular_tempo_decorrido(row.get("criado_em", ""), fim)
+                    tempo_decorrido = calcular_tempo_decorrido(row.get("criado_em", ""), fim)
                     
-                    rotulo_tempo = "Tempo de resolucao" if is_concluida else "Em andamento ha"
-                    texto_tarefa = f"- {row['titulo']} [Contexto: {row['contexto']} | Status: {row['status_global']} | {rotulo_tempo}: {tempo_txt}]"
+                    rotulo_tempo = "Tempo de resolucao" if is_concluida else "Tempo decorrido"
+                    texto_tarefa = f"- {row['titulo']} [Contexto: {row['contexto']} | Status: {row['status_global']} | {rotulo_tempo}: {tempo_decorrido}]"
                     
                     texto_sanitizado = texto_tarefa.encode("latin-1", "replace").decode("latin-1")
                     
                     pdf.set_x(pdf.l_margin)
                     pdf.multi_cell(w=largura_util, h=6, text=texto_sanitizado, new_x="LMARGIN", new_y="NEXT")
             
-            pdf.ln(4)
+            pdf.ln(3)
             
         return bytes(pdf.output())
 
@@ -258,28 +269,36 @@ with aba_relatorios:
 
     col_pdf1, col_pdf2 = st.columns(2)
     
+    # --- RELATÓRIO DE PENDENTES ---
     with col_pdf1:
         st.markdown("### Tarefas Pendentes")
-        st.caption("Calcula a duração desde o cadastro até o momento da emissão.")
+        st.caption("Calcula o tempo decorrido individual desde a criação da tarefa até a emissão do relatório.")
         if st.button("Gerar Relatório de Pendentes", key="btn_gerar_pend"):
-            pdf_pendentes_bytes = gerar_pdf_eisenhower(df_pendentes, "Relatorio de Tarefas Pendentes", is_concluida=False)
+            st.session_state["pdf_pendentes_data"] = gerar_pdf_eisenhower(
+                df_pendentes, 
+                "Relatorio de Tarefas Pendentes", 
+                is_concluida=False
+            )
+            
+        if "pdf_pendentes_data" in st.session_state:
             st.download_button(
                 label="📥 Baixar PDF (Pendentes)",
-                data=pdf_pendentes_bytes,
+                data=st.session_state["pdf_pendentes_data"],
                 file_name="tarefas_pendentes.pdf",
                 mime="application/pdf",
                 key="btn_dl_pendentes"
             )
 
+    # --- RELATÓRIO DE CONCLUÍDAS COM FILTRO DE TEMPO ---
     with col_pdf2:
         st.markdown("### Tarefas Concluídas")
-        st.caption("Filtre o período de conclusão desejado:")
+        st.caption("Calcula o tempo de resolução total (do cadastro ao encerramento).")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            data_ini = st.date_input("De:", value=date.today().replace(day=1), key="dt_ini")
+            data_ini = st.date_input("De (dd/mm/aaaa):", value=date.today().replace(day=1), format="DD/MM/YYYY", key="dt_ini")
         with col_d2:
-            data_fim = st.date_input("Até:", value=date.today(), key="dt_fim")
+            data_fim = st.date_input("Até (dd/mm/aaaa):", value=date.today(), format="DD/MM/YYYY", key="dt_fim")
             
         if st.button("Gerar Relatório de Concluídas", key="btn_gerar_conc"):
             df_concluidas_filtradas = df_concluidas_base.copy()
@@ -289,16 +308,21 @@ with aba_relatorios:
                 df_concluidas_filtradas = df_concluidas_filtradas[
                     (df_concluidas_filtradas["dt_comp"] >= data_ini) & (df_concluidas_filtradas["dt_comp"] <= data_fim)
                 ]
+            else:
+                df_concluidas_filtradas = pd.DataFrame(columns=df_tarefas.columns)
                 
-            pdf_concluidas_bytes = gerar_pdf_eisenhower(
+            st.session_state["pdf_concluidas_data"] = gerar_pdf_eisenhower(
                 df_concluidas_filtradas, 
                 f"Relatorio de Tarefas Concluidas ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})", 
                 is_concluida=True
             )
+            st.session_state["pdf_concluidas_nome"] = f"tarefas_concluidas_{data_ini}_{data_fim}.pdf"
+
+        if "pdf_concluidas_data" in st.session_state:
             st.download_button(
                 label="📥 Baixar PDF (Concluídas)",
-                data=pdf_concluidas_bytes,
-                file_name=f"tarefas_concluidas_{data_ini}_{data_fim}.pdf",
+                data=st.session_state["pdf_concluidas_data"],
+                file_name=st.session_state.get("pdf_concluidas_nome", "tarefas_concluidas.pdf"),
                 mime="application/pdf",
                 key="btn_dl_concluidas"
             )
