@@ -118,7 +118,6 @@ with aba_gestao:
                     if novo_status == "Concluída":
                         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "concluido_em"] = agora
-                        # Encerra qualquer instância em aberto
                         mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isna() | (df_instancias["data_saida"] == ""))
                         df_instancias.loc[mask, "data_saida"] = agora
                         conn.update(worksheet="Instancias", data=df_instancias)
@@ -211,7 +210,6 @@ with aba_relatorios:
         pdf.set_font("helvetica", style="B", size=16)
         pdf.cell(w=0, h=10, text=titulo_pdf, new_x="LMARGIN", new_y="NEXT", align="C")
         
-        # Subtítulo com timestamp da emissão
         pdf.set_font("helvetica", size=9)
         pdf.cell(w=0, h=6, text=f"Emitido em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", new_x="LMARGIN", new_y="NEXT", align="C")
         pdf.ln(4)
@@ -230,14 +228,18 @@ with aba_relatorios:
             pdf.cell(w=largura_util, h=8, text=nome_cat, new_x="LMARGIN", new_y="NEXT")
             
             pdf.set_font("helvetica", size=10)
-            filtro = df_relatorio[(df_relatorio["importancia"] == imp) & (df_relatorio["urgencia"] == urg)]
+            
+            if df_relatorio.empty or "importancia" not in df_relatorio.columns:
+                filtro = pd.DataFrame()
+            else:
+                filtro = df_relatorio[(df_relatorio["importancia"] == imp) & (df_relatorio["urgencia"] == urg)]
             
             if filtro.empty:
                 pdf.cell(w=largura_util, h=6, text="  Nenhuma tarefa nesta categoria.", new_x="LMARGIN", new_y="NEXT")
             else:
                 for _, row in filtro.iterrows():
-                    fim = row["concluido_em"] if is_concluida else None
-                    tempo_txt = calcular_tempo_decorrido(row["criado_em"], fim)
+                    fim = row.get("concluido_em", None) if is_concluida else None
+                    tempo_txt = calcular_tempo_decorrido(row.get("criado_em", ""), fim)
                     
                     rotulo_tempo = "Tempo de resolucao" if is_concluida else "Em andamento ha"
                     texto_tarefa = f"- {row['titulo']} [Contexto: {row['contexto']} | Status: {row['status_global']} | {rotulo_tempo}: {tempo_txt}]"
@@ -251,7 +253,7 @@ with aba_relatorios:
             
         return bytes(pdf.output())
 
-    df_pendentes = df_tarefas[df_tarefas["status_global"] != "Concluída"]
+    df_pendentes = df_tarefas[df_tarefas["status_global"] != "Concluída"].copy()
     df_concluidas_base = df_tarefas[df_tarefas["status_global"] == "Concluída"].copy()
 
     col_pdf1, col_pdf2 = st.columns(2)
@@ -259,14 +261,15 @@ with aba_relatorios:
     with col_pdf1:
         st.markdown("### Tarefas Pendentes")
         st.caption("Calcula a duração desde o cadastro até o momento da emissão.")
-        pdf_pendentes_bytes = gerar_pdf_eisenhower(df_pendentes, "Relatorio de Tarefas Pendentes", is_concluida=False)
-        st.download_button(
-            label="📥 Baixar PDF (Pendentes)",
-            data=pdf_pendentes_bytes,
-            file_name="tarefas_pendentes.pdf",
-            mime="application/pdf",
-            key="btn_dl_pendentes"
-        )
+        if st.button("Gerar Relatório de Pendentes", key="btn_gerar_pend"):
+            pdf_pendentes_bytes = gerar_pdf_eisenhower(df_pendentes, "Relatorio de Tarefas Pendentes", is_concluida=False)
+            st.download_button(
+                label="📥 Baixar PDF (Pendentes)",
+                data=pdf_pendentes_bytes,
+                file_name="tarefas_pendentes.pdf",
+                mime="application/pdf",
+                key="btn_dl_pendentes"
+            )
 
     with col_pdf2:
         st.markdown("### Tarefas Concluídas")
@@ -278,23 +281,24 @@ with aba_relatorios:
         with col_d2:
             data_fim = st.date_input("Até:", value=date.today(), key="dt_fim")
             
-        # Aplicação do filtro de data de conclusão
-        df_concluidas_filtradas = pd.DataFrame()
-        if not df_concluidas_base.empty:
-            df_concluidas_base["dt_comp"] = pd.to_datetime(df_concluidas_base["concluido_em"], errors="coerce").dt.date
-            df_concluidas_filtradas = df_concluidas_base[
-                (df_concluidas_base["dt_comp"] >= data_ini) & (df_concluidas_base["dt_comp"] <= data_fim)
-            ]
+        if st.button("Gerar Relatório de Concluídas", key="btn_gerar_conc"):
+            df_concluidas_filtradas = df_concluidas_base.copy()
             
-        pdf_concluidas_bytes = gerar_pdf_eisenhower(
-            df_concluidas_filtradas, 
-            f"Relatorio de Tarefas Concluidas ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})", 
-            is_concluida=True
-        )
-        st.download_button(
-            label="📥 Baixar PDF (Concluídas)",
-            data=pdf_concluidas_bytes,
-            file_name=f"tarefas_concluidas_{data_ini}_{data_fim}.pdf",
-            mime="application/pdf",
-            key="btn_dl_concluidas"
-        )
+            if not df_concluidas_filtradas.empty:
+                df_concluidas_filtradas["dt_comp"] = pd.to_datetime(df_concluidas_filtradas["concluido_em"], errors="coerce").dt.date
+                df_concluidas_filtradas = df_concluidas_filtradas[
+                    (df_concluidas_filtradas["dt_comp"] >= data_ini) & (df_concluidas_filtradas["dt_comp"] <= data_fim)
+                ]
+                
+            pdf_concluidas_bytes = gerar_pdf_eisenhower(
+                df_concluidas_filtradas, 
+                f"Relatorio de Tarefas Concluidas ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})", 
+                is_concluida=True
+            )
+            st.download_button(
+                label="📥 Baixar PDF (Concluídas)",
+                data=pdf_concluidas_bytes,
+                file_name=f"tarefas_concluidas_{data_ini}_{data_fim}.pdf",
+                mime="application/pdf",
+                key="btn_dl_concluidas"
+            )
