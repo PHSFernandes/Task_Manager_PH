@@ -95,6 +95,8 @@ with aba_gestao:
     subaba_ativas, subaba_concluidas = st.tabs(["⏳ Tarefas em Andamento", "✅ Tarefas Concluídas"])
 
     def renderizar_lista_tarefas(df_lista, is_historico_concluidas=False):
+        global df_tarefas, df_instancias  # Corrige o UnboundLocalError
+        
         if df_lista.empty:
             st.info("Nenhuma tarefa encontrada nesta seção.")
             return
@@ -113,9 +115,9 @@ with aba_gestao:
                     st.markdown("**Atualizar Status Global**")
                     lista_status = ["Pendente", "Em andamento", "Aguardando Setor/Pessoa", "Em revisão", "Concluída"]
                     idx_atual = lista_status.index(stat) if stat in lista_status else 0
-                    novo_status = st.selectbox("Mudar para:", lista_status, index=idx_atual, key=f"status_{id_t}")
+                    novo_status = st.selectbox("Mudar para:", lista_status, index=idx_atual, key=f"status_{id_t}_{is_historico_concluidas}")
                     
-                    if st.button("Salvar Status", key=f"btn_status_{id_t}"):
+                    if st.button("Salvar Status", key=f"btn_status_{id_t}_{is_historico_concluidas}"):
                         df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "status_global"] = novo_status
                         
                         if novo_status == "Concluída":
@@ -133,7 +135,7 @@ with aba_gestao:
 
                 with col_instancia:
                     st.markdown("**Encaminhar (Nova Instância)**")
-                    with st.form(f"form_inst_{id_t}", clear_on_submit=True):
+                    with st.form(f"form_inst_{id_t}_{is_historico_concluidas}", clear_on_submit=True):
                         responsavel = st.text_input("Responsável / Setor")
                         obs = st.text_area("Observações")
                         
@@ -166,7 +168,7 @@ with aba_gestao:
                     
                     ultima_linha = instancias_tarefa.iloc[-1]
                     if pd.isna(ultima_linha["data_saida"]) or ultima_linha["data_saida"] == "":
-                        if st.button("Concluir Etapa Atual", key=f"concluir_etapa_{id_t}"):
+                        if st.button("Concluir Etapa Atual", key=f"concluir_etapa_{id_t}_{is_historico_concluidas}"):
                             id_inst = ultima_linha["id_instancia"]
                             df_instancias.loc[df_instancias["id_instancia"] == id_inst, "data_saida"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             conn.update(worksheet="Instancias", data=df_instancias)
