@@ -22,20 +22,36 @@ def load_data(worksheet):
 df_tarefas = load_data("Tarefas")
 df_instancias = load_data("Instancias")
 
+# Tratamento de compatibilidade e segurança para colunas e valores nulos
+colunas_tarefas_padrao = {
+    "id_tarefa": "",
+    "titulo": "",
+    "urgencia": "Não Urgente",
+    "importancia": "Não Importante",
+    "status_global": "Pendente",
+    "contexto": "Pessoal",
+    "criado_em": ""
+}
+
+for col, val_padrao in colunas_tarefas_padrao.items():
+    if col not in df_tarefas.columns:
+        df_tarefas[col] = val_padrao
+    else:
+        df_tarefas[col] = df_tarefas[col].fillna(val_padrao)
+
+# Menu Lateral para os Ambientes
 st.sidebar.header("Ambientes")
 contexto_escolhido = st.sidebar.radio("Selecione o painel atual:", ["Pessoal", "InnovaTerra", "Egas"])
 
-# Título Corrigido
 st.title("Gestão de Tarefas")
 
-# Abas atualizadas
+# Abas da Aplicação
 aba_dashboard, aba_gestao, aba_cadastro, aba_relatorios = st.tabs(["📊 Dashboard", "📋 Gestão e Fluxo", "➕ Nova Tarefa", "📄 Relatórios"])
 
 # ================= ABA DASHBOARD =================
 with aba_dashboard:
     st.subheader("📌 Quadro de Avisos (Pendências Prioritárias)")
     
-    # Filtra tudo que não está concluído
     df_pendentes_geral = df_tarefas[df_tarefas["status_global"] != "Concluída"]
     
     col1, col2, col3 = st.columns(3)
@@ -60,7 +76,7 @@ with aba_gestao:
         id_t = tarefa["id_tarefa"]
         tit = tarefa["titulo"]
         urg = tarefa["urgencia"]
-        imp = tarefa.get("importancia", "Não Importante") # get com fallback para evitar erro em tarefas antigas
+        imp = tarefa["importancia"]
         stat = tarefa["status_global"]
         
         with st.expander(f"[{urg} / {imp}] {tit} - (Status: {stat})"):
@@ -87,6 +103,7 @@ with aba_gestao:
                     if st.form_submit_button("Registrar Encaminhamento"):
                         if responsavel.strip():
                             agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
                             mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isna() | (df_instancias["data_saida"] == ""))
                             df_instancias.loc[mask, "data_saida"] = agora
                             
@@ -180,7 +197,6 @@ with aba_relatorios:
             
         return bytes(pdf.output())
 
-    # Separa os dataframes
     df_pendentes = df_tarefas[df_tarefas["status_global"] != "Concluída"]
     df_concluidas = df_tarefas[df_tarefas["status_global"] == "Concluída"]
 
