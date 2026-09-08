@@ -22,7 +22,7 @@ def load_data(worksheet):
 df_tarefas = load_data("Tarefas")
 df_instancias = load_data("Instancias")
 
-# Tratamento de integridade para colunas e valores nulos
+# Tratamento de integridade e tipos de colunas em Tarefas
 colunas_tarefas_padrao = {
     "id_tarefa": "",
     "titulo": "",
@@ -38,7 +38,23 @@ for col, val_padrao in colunas_tarefas_padrao.items():
     if col not in df_tarefas.columns:
         df_tarefas[col] = val_padrao
     else:
-        df_tarefas[col] = df_tarefas[col].fillna(val_padrao)
+        df_tarefas[col] = df_tarefas[col].fillna(val_padrao).astype(str)
+
+# Tratamento de integridade e tipos de colunas em Instancias (evita conflitos de tipos em datas e IDs)
+colunas_instancias_padrao = {
+    "id_instancia": "",
+    "id_tarefa": "",
+    "responsavel": "",
+    "data_entrada": "",
+    "data_saida": "",
+    "observacoes": ""
+}
+
+for col, val_padrao in colunas_instancias_padrao.items():
+    if col not in df_instancias.columns:
+        df_instancias[col] = val_padrao
+    else:
+        df_instancias[col] = df_instancias[col].fillna(val_padrao).astype(str)
 
 # Função para cálculo exato de tempo decorrido individual (dias e horas)
 def calcular_tempo_decorrido(inicio_str, fim_str=None):
@@ -47,7 +63,7 @@ def calcular_tempo_decorrido(inicio_str, fim_str=None):
     except Exception:
         return "Tempo Indefinido"
     
-    if fim_str and str(fim_str).strip() != "":
+    if fim_str and str(fim_str).strip() not in ["", "None", "nan"]:
         try:
             dt_fim = datetime.strptime(str(fim_str).strip(), "%Y-%m-%d %H:%M:%S")
         except Exception:
@@ -102,7 +118,7 @@ with aba_gestao:
             return
 
         for _, tarefa in df_lista.iterrows():
-            id_t = tarefa["id_tarefa"]
+            id_t = str(tarefa["id_tarefa"])
             tit = tarefa["titulo"]
             urg = tarefa["urgencia"]
             imp = tarefa["importancia"]
@@ -123,7 +139,8 @@ with aba_gestao:
                         if novo_status == "Concluída":
                             agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             df_tarefas.loc[df_tarefas["id_tarefa"] == id_t, "concluido_em"] = agora
-                            mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isna() | (df_instancias["data_saida"] == ""))
+                            
+                            mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isin(["", "None", "nan"]))
                             df_instancias.loc[mask, "data_saida"] = agora
                             conn.update(worksheet="Instancias", data=df_instancias)
                         else:
@@ -143,7 +160,8 @@ with aba_gestao:
                             if responsavel.strip():
                                 agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 
-                                mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isna() | (df_instancias["data_saida"] == ""))
+                                # Encerra qualquer instância anterior em aberto para esta tarefa
+                                mask = (df_instancias["id_tarefa"] == id_t) & (df_instancias["data_saida"].isin(["", "None", "nan"]))
                                 df_instancias.loc[mask, "data_saida"] = agora
                                 
                                 nova_instancia = pd.DataFrame([{
@@ -167,9 +185,10 @@ with aba_gestao:
                     st.dataframe(instancias_tarefa[["responsavel", "data_entrada", "data_saida", "observacoes"]], hide_index=True, use_container_width=True)
                     
                     ultima_linha = instancias_tarefa.iloc[-1]
-                    if pd.isna(ultima_linha["data_saida"]) or ultima_linha["data_saida"] == "":
+                    saida_val = str(ultima_linha["data_saida"]).strip()
+                    if saida_val in ["", "None", "nan"]:
                         if st.button("Concluir Etapa Atual", key=f"concluir_etapa_{id_t}_{is_historico_concluidas}"):
-                            id_inst = ultima_linha["id_instancia"]
+                            id_inst = str(ultima_linha["id_instancia"])
                             df_instancias.loc[df_instancias["id_instancia"] == id_inst, "data_saida"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             conn.update(worksheet="Instancias", data=df_instancias)
                             st.cache_data.clear()
@@ -222,7 +241,6 @@ with aba_relatorios:
         ("4o) NAO URGENTE e NAO IMPORTANTE: ELIMINE!", "Não Importante", "Não Urgente")
     ]
 
-    # Função para gerar o relatório de pendentes com contextos em páginas separadas
     def gerar_pdf_pendentes_por_contexto(df_dados, contextos_selecionados):
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=15)
@@ -231,7 +249,6 @@ with aba_relatorios:
         for ctx in contextos_selecionados:
             pdf.add_page()
             
-            # Título específico por contexto
             pdf.set_font("helvetica", style="B", size=15)
             titulo_secao = f"Relatorio de Tarefas Pendentes - {ctx}"
             pdf.cell(w=0, h=9, text=titulo_secao.encode("latin-1", "replace").decode("latin-1"), new_x="LMARGIN", new_y="NEXT", align="C")
@@ -267,7 +284,6 @@ with aba_relatorios:
                 
         return bytes(pdf.output())
 
-    # Função para gerar o relatório de concluídas
     def gerar_pdf_concluidas(df_relatorio, titulo_pdf):
         pdf = FPDF()
         pdf.add_page()
